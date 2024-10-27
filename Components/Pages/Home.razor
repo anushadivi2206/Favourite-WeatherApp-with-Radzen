@@ -1,0 +1,299 @@
+﻿@page "/"
+@using FavouriteWeather2k24.Models
+@using FavouriteWeather2k24.Services
+@inject NavigationManager Navigation
+@inject FavoriteCityService FavoriteCityService
+@inject Blazored.LocalStorage.ILocalStorageService localStorage
+@inject HttpClient httpClient
+@rendermode InteractiveServer
+
+<PageTitle>Weather Search</PageTitle>
+
+<style>
+    h1 {
+        color: purple;
+        display: flex;
+        align-items: center;
+    }
+
+    span {
+        border: 2px solid purple;
+        padding: 5px;
+        border-radius: 50%;
+        margin-right: 10px;
+    }
+
+    .favorite-icon {
+        cursor: pointer;
+        font-size: 1.2rem;
+        color: gray;
+    }
+
+        .favorite-icon.active {
+            color: gold;
+        }
+
+    .favorite-city {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background-color: #f7f7f7;
+    }
+
+        .favorite-city h3 {
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+        }
+
+        .favorite-city p {
+            margin: 5px 0;
+        }
+
+    .delete-icon {
+        cursor: pointer;
+        font-size: 1.2rem;
+        color: red;
+    }
+
+    .error-message {
+        color: red;
+        margin-top: 10px;
+    }
+
+    .loading {
+        color: #6a1b9a;
+        margin-top: 10px;
+    }
+</style>
+
+<h1><span>🏙</span> Weather Search</h1>
+
+@if (step == 1)
+{
+    <div>
+        <label>How many cities do you want to search?</label>
+        <input type="number" @bind-value="numberOfCities" min="1" max="10" style="padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px;" />
+        <button @onclick="SetNumberOfCities" style="padding: 10px 20px; font-size: 16px; margin-left: 10px; background-color: #6a1b9a; color: white; border: none; border-radius: 4px; cursor: pointer;">Next</button>
+    </div>
+}
+else if (step == 2)
+{
+    <div>
+        @for (int i = 0; i < numberOfCities; i++)
+        {
+            int index = i;
+            <div style="margin-bottom: 10px;">
+                <label>City @(index + 1):</label>
+                <input type="text" @bind-value="cityNames[index]" placeholder="Enter city name" style="padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px;" />
+            </div>
+        }
+        <button @onclick="SearchCities" style="padding: 10px 20px; font-size: 16px; margin-top: 10px; background-color: #6a1b9a; color: white; border: none; border-radius: 4px; cursor: pointer;">Search</button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <p class="error-message">@errorMessage</p>
+}
+
+@if (isLoading)
+{
+    <p class="loading">Loading weather data...</p>
+}
+
+@if (weatherResults.Count > 0)
+{
+    <div>
+        <h2 style="color: #2c3e50;">Weather Results:</h2>
+        <table style="border-collapse: collapse; width: 100%; background-color: #f7f7f7; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);">
+            <tr>
+                <th style="border: 1px solid #ddd; padding: 8px; background-color: #6a1b9a; color: white;">Favorite</th>
+                <th style="border: 1px solid #ddd; padding: 8px; background-color: #6a1b9a; color: white;">City</th>
+                <th style="border: 1px solid #ddd; padding: 8px; background-color: #6a1b9a; color: white;">Temperature (°C)</th>
+                <th style="border: 1px solid #ddd; padding: 8px; background-color: #6a1b9a; color: white;">Feels Like (°C)</th>
+                <th style="border: 1px solid #ddd; padding: 8px; background-color: #6a1b9a; color: white;">Humidity (%)</th>
+                <th style="border: 1px solid #ddd; padding: 8px; background-color: #6a1b9a; color: white;">Pressure (hPa)</th>
+            </tr>
+            @foreach (var weather in weatherResults)
+            {
+                <tr>
+                    <td style="border: 1px solid #ddd; padding: 8px;">
+                        <span class="favorite-icon @(IsFavorite(weather.Name) ? "active" : "")" @onclick="() => ToggleFavorite(weather.Name)">&#x2605;</span>
+                    </td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">@weather.Name, @weather.Sys.Country</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">@weather.Main.Temp</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">@weather.Main.feels_like</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">@weather.Main.humidity</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">@weather.Main.pressure</td>
+                </tr>
+            }
+        </table>
+    </div>
+}
+
+<h1>Favorite Cities</h1>
+
+@if (favoriteCities.Count > 0)
+{
+    <div>
+        @foreach (var city in favoriteCities)
+        {
+            <div class="favorite-city">
+                <div>
+                    <h3>@city</h3>
+                    @if (weatherDict.ContainsKey(city))
+                    {
+                        <p>Temperature: @weatherDict[city].Main.Temp °C</p>
+                        <p>Feels Like: @weatherDict[city].Main.feels_like °C</p>
+                        <p>Humidity: @weatherDict[city].Main.humidity %</p>
+                        <p>Pressure: @weatherDict[city].Main.pressure hPa</p>
+                    }
+                    else
+                    {
+                        <p>Loading...</p>
+                    }
+                </div>
+                <span class="delete-icon" @onclick="() => RemoveFavoriteCity(city)">🗑</span>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <p>No favorite cities added yet.</p>
+}
+
+@code {
+    private int step = 1;
+    private int numberOfCities = 1;
+    private List<string> cityNames = new List<string>();
+    private List<WeatherforcastingModel> weatherResults = new List<WeatherforcastingModel>();
+    private Dictionary<string, WeatherforcastingModel> weatherDict = new Dictionary<string, WeatherforcastingModel>();
+    private string ApiKey = "071c3423863f9b0f3ba1f1ce12c0ded9";
+    private List<string> favoriteCities = new List<string>();
+    private bool isLoading;
+    private string errorMessage = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadFavoriteCities();
+        await LoadWeatherForFavoriteCities();
+    }
+
+    private void SetNumberOfCities()
+    {
+        if (numberOfCities < 1 || numberOfCities > 10)
+        {
+            errorMessage = "Please enter a number between 1 and 10.";
+            return;
+        }
+
+        cityNames = new List<string>(new string[numberOfCities]);
+        step = 2;
+        errorMessage = string.Empty;
+    }
+
+    private async Task SearchCities()
+    {
+        if (cityNames.Any(string.IsNullOrWhiteSpace))
+        {
+            errorMessage = "Please enter all city names.";
+            return;
+        }
+
+        errorMessage = string.Empty;
+        isLoading = true;
+        weatherResults.Clear();
+
+        try
+        {
+            foreach (var cityName in cityNames)
+            {
+                string apiUrl = $"https://api.openweathermap.org/data/2.5/weather?q={cityName}&appid={ApiKey}&units=metric";
+                var weather = await httpClient.GetFromJsonAsync<WeatherforcastingModel>(apiUrl);
+                if (weather != null)
+                {
+                    weatherResults.Add(weather);
+                }
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            errorMessage = "Error fetching weather data. Please check the city names and try again.";
+            Console.WriteLine($"HTTP request error: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "An unexpected error occurred. Please try again later.";
+            Console.WriteLine($"Error fetching weather data: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadFavoriteCities()
+    {
+        favoriteCities = await FavoriteCityService.GetFavoriteCitiesAsync();
+    }
+
+    private async Task RemoveFavoriteCity(string cityName)
+    {
+        await FavoriteCityService.RemoveFavoriteCityAsync(cityName);
+        favoriteCities.Remove(cityName);
+        weatherDict.Remove(cityName);
+        StateHasChanged();
+    }
+
+    private async Task LoadWeatherForFavoriteCities()
+    {
+        foreach (var city in favoriteCities)
+        {
+            if (!weatherDict.ContainsKey(city))
+            {
+                try
+                {
+                    string apiUrl = $"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={ApiKey}&units=metric";
+                    var response = await httpClient.GetFromJsonAsync<WeatherforcastingModel>(apiUrl);
+                    if (response != null)
+                    {
+                        weatherDict[city] = response;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error fetching weather for {city}: {ex.Message}");
+                }
+            }
+        }
+        StateHasChanged();
+    }
+
+    private bool IsFavorite(string cityName)
+    {
+        return favoriteCities.Contains(cityName);
+    }
+
+    private async Task ToggleFavorite(string cityName)
+    {
+        if (await FavoriteCityService.IsFavoriteCityAsync(cityName))
+        {
+            await FavoriteCityService.RemoveFavoriteCityAsync(cityName);
+            favoriteCities.Remove(cityName);
+            weatherDict.Remove(cityName);
+        }
+        else
+        {
+            await FavoriteCityService.AddFavoriteCityAsync(cityName);
+            favoriteCities.Add(cityName);
+            await LoadWeatherForFavoriteCities();
+        }
+        StateHasChanged();
+    }
+}
